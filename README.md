@@ -46,6 +46,35 @@ f 0 1 2
 ./build/gim_toolkit render sample/demo.gim sample/demo.ppm
 ```
 
+
+## 在 VSCode 里运行
+
+可以。推荐安装扩展：
+
+- `C/C++`（ms-vscode.cpptools）
+- `CMake Tools`（ms-vscode.cmake-tools）
+
+在项目根目录打开终端后执行：
+
+```bash
+cmake -S . -B build
+cmake --build build
+```
+
+然后可直接运行：
+
+```bash
+./build/gim_toolkit inspect sample/demo.gim
+./build/gim_toolkit set-attr sample/demo.gim revision int 3 sample/demo_v3.gim
+./build/gim_toolkit render sample/demo.gim sample/demo.ppm
+```
+
+如果你使用 Windows + MinGW，可把运行命令改为：
+
+```bash
+.\build\gim_toolkit.exe inspect sample\demo.gim
+```
+
 ## 后续可扩展方向
 
 - 对接真实 GIM 规范（binary chunk、压缩块、坐标系、材质等）
