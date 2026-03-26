@@ -107,6 +107,16 @@ Windows + MinGW 示例：
 1. `cmake` 没装好或不在 PATH；
 2. 所以并没有产出 `gim_studio.exe`，后面的运行命令自然也找不到。
 
+如果你 **已经单独安装了 CMake**（你现在这个情况），优先用这组原生命令：
+
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+.\build\Release\gim_studio.exe sample\demo.gim
+```
+
+> 如果你不是 VS2022，把生成器改成你本机版本（例如 `Visual Studio 16 2019`）。
+
 按下面做（一步一步复制执行）：
 
 ```powershell
