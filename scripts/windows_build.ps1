@@ -1,6 +1,8 @@
 param(
     [string]$Configuration = "Release",
-    [switch]$DisableStudio
+    [switch]$DisableStudio,
+    [string]$Generator = "",
+    [string]$Platform = "x64"
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,6 +38,27 @@ function Resolve-CMakePath {
     throw "cmake.exe not found. Install CMake (Add CMake to PATH) or install Visual Studio C++ CMake tools."
 }
 
+function Resolve-VsGenerator {
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $version = & $vswhere -latest -products * -property catalog_productLineVersion
+        if ($version -and $version.Trim() -eq "2022") {
+            return "Visual Studio 17 2022"
+        }
+        if ($version -and $version.Trim() -eq "2019") {
+            return "Visual Studio 16 2019"
+        }
+    }
+    return ""
+}
+
+function Invoke-Native([string]$File, [string[]]$Args) {
+    & $File @Args
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed ($LASTEXITCODE): $File $($Args -join ' ')"
+    }
+}
+
 $cmakeExe = Resolve-CMakePath
 Write-Host "Using CMake: $cmakeExe"
 
@@ -47,7 +70,22 @@ if ($DisableStudio) {
     $configureArgs += "-DGIM_ENABLE_STUDIO=OFF"
 }
 
-& $cmakeExe @configureArgs
-& $cmakeExe --build $buildDir --config $Configuration
+if ($Generator) {
+    $configureArgs += @("-G", $Generator)
+    if ($Generator -like "Visual Studio*") {
+        $configureArgs += @("-A", $Platform)
+    }
+} else {
+    $vsGenerator = Resolve-VsGenerator
+    if ($vsGenerator) {
+        Write-Host "Auto generator: $vsGenerator ($Platform)"
+        $configureArgs += @("-G", $vsGenerator, "-A", $Platform)
+    } else {
+        Write-Host "Auto generator: default CMake generator"
+    }
+}
+
+Invoke-Native $cmakeExe $configureArgs
+Invoke-Native $cmakeExe @("--build", $buildDir, "--config", $Configuration)
 
 Write-Host "Build done."

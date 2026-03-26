@@ -117,6 +117,13 @@ Windows + MinGW 示例：
 .\scripts\run_studio.ps1 -ModelPath sample\demo.gim
 ```
 
+`windows_build.ps1` 会优先自动选择 Visual Studio 生成器（如 `Visual Studio 17 2022 -A x64`），避免你遇到的 `nmake` 缺失问题。
+如果你想手动指定，也可以：
+
+```powershell
+.\scripts\windows_build.ps1 -Generator "Visual Studio 17 2022" -Platform x64
+```
+
 如果你电脑限制了 PowerShell 脚本执行（ExecutionPolicy），先在**当前终端**临时放开：
 
 ```powershell
