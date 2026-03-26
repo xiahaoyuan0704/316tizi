@@ -1,0 +1,43 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Configure (with Studio)",
+      "type": "shell",
+      "command": "cmake -S . -B build"
+    },
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "cmake --build build"
+    },
+    {
+      "label": "Run CLI Inspect",
+      "type": "shell",
+      "linux": {
+        "command": "./build/gim_toolkit inspect sample/demo.gim"
+      },
+      "osx": {
+        "command": "./build/gim_toolkit inspect sample/demo.gim"
+      },
+      "windows": {
+        "command": ".\\build\\gim_toolkit.exe inspect sample\\demo.gim"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Studio",
+      "type": "shell",
+      "linux": {
+        "command": "./build/gim_studio sample/demo.gim"
+      },
+      "osx": {
+        "command": "./build/gim_studio sample/demo.gim"
+      },
+      "windows": {
+        "command": ".\\build\\gim_studio.exe sample\\demo.gim"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

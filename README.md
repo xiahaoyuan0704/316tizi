@@ -96,6 +96,33 @@ Windows + MinGW 示例：
 .\build\gim_studio.exe sample\demo.gim
 ```
 
+
+## VSCode / PowerShell 常见报错排查
+
+如果你在 Windows PowerShell 看到：
+
+`无法将“./build/gim_studio”项识别为 cmdlet...`
+
+通常是以下原因：
+
+1. **Windows 可执行文件需要 `.exe` 后缀**：
+   - 用 `./build/gim_studio` 会失败
+   - 要改成：`.\build\gim_studio.exe sample\demo.gim`
+2. **`gim_studio` 目标没有成功构建**：
+   - 先执行 `cmake -S . -B build`
+   - 再执行 `cmake --build build --config Release`
+   - 检查 `build` 目录中是否存在 `gim_studio.exe`
+3. **你在多配置生成器（Visual Studio）下构建**：
+   - 可执行文件可能在 `build\Release\gim_studio.exe`
+
+建议在 VSCode 里直接用 `Terminal -> Run Task...`，按顺序执行：
+
+- `Configure (with Studio)`
+- `Build`
+- `Run Studio`
+
+仓库里已经提供了对应任务文件：`.vscode/tasks.json`。
+
 ## Qt + ImGui 说明
 
 当前版本优先交付了 `OpenGL + ImGui` 实时编辑器，已覆盖属性面板编辑与实时渲染主流程。后续如果你确定使用 Qt 技术栈（例如 Qt6 + QOpenGLWidget + ImGui backend），可在此基础上增加 Qt 容器层并复用现有 `gim_core` 数据与解析模块。
