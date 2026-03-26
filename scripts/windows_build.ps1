@@ -33,7 +33,7 @@ function Resolve-CMakePath {
         }
     }
 
-    throw "未找到 cmake.exe。请安装 CMake（勾选 Add CMake to system PATH），或安装 Visual Studio 的 C++ CMake 工具。"
+    throw "cmake.exe not found. Install CMake (Add CMake to PATH) or install Visual Studio C++ CMake tools."
 }
 
 $cmakeExe = Resolve-CMakePath

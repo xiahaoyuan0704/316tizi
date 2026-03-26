@@ -22,11 +22,11 @@ foreach ($c in $candidates) {
 }
 
 if (-not $studio) {
-    throw "未找到 gim_studio.exe。请先执行: .\scripts\windows_build.ps1"
+    throw "gim_studio.exe not found. Run: .\\scripts\\windows_build.ps1"
 }
 
 if (-not (Test-Path $ModelPath)) {
-    throw "模型文件不存在: $ModelPath"
+    throw "Model file not found: $ModelPath"
 }
 
 Write-Host "Run: $studio $ModelPath"

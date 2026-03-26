@@ -117,6 +117,12 @@ Windows + MinGW 示例：
 .\scripts\run_studio.ps1 -ModelPath sample\demo.gim
 ```
 
+如果你电脑限制了 PowerShell 脚本执行（ExecutionPolicy），先在**当前终端**临时放开：
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
 如果第一步提示找不到 CMake，请安装任一方案：
 
 - 安装 **CMake 官方安装包**，安装时勾选 `Add CMake to the system PATH`；
