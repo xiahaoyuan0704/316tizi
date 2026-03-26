@@ -99,6 +99,32 @@ Windows + MinGW 示例：
 
 ## VSCode / PowerShell 常见报错排查
 
+
+### Windows（PowerShell）快速修复你当前报错
+
+你现在的两个报错都说明：
+
+1. `cmake` 没装好或不在 PATH；
+2. 所以并没有产出 `gim_studio.exe`，后面的运行命令自然也找不到。
+
+按下面做（一步一步复制执行）：
+
+```powershell
+# 1) 在仓库根目录运行，自动查找 cmake（PATH / Visual Studio / 常见安装目录）并构建
+.\scripts\windows_build.ps1
+
+# 2) 运行 studio（脚本会自动在 build\ 或 build\Release\ 下查找 exe）
+.\scripts\run_studio.ps1 -ModelPath sample\demo.gim
+```
+
+如果第一步提示找不到 CMake，请安装任一方案：
+
+- 安装 **CMake 官方安装包**，安装时勾选 `Add CMake to the system PATH`；
+- 或安装 **Visual Studio 2022** 的 “Desktop development with C++” + CMake 组件。
+
+安装后重开 VSCode 终端，再执行上面两条脚本命令。
+
+
 如果你在 Windows PowerShell 看到：
 
 `无法将“./build/gim_studio”项识别为 cmdlet...`

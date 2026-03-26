@@ -4,12 +4,28 @@
     {
       "label": "Configure (with Studio)",
       "type": "shell",
-      "command": "cmake -S . -B build"
+      "linux": {
+        "command": "cmake -S . -B build"
+      },
+      "osx": {
+        "command": "cmake -S . -B build"
+      },
+      "windows": {
+        "command": ".\\scripts\\windows_build.ps1"
+      }
     },
     {
       "label": "Build",
       "type": "shell",
-      "command": "cmake --build build"
+      "linux": {
+        "command": "cmake --build build"
+      },
+      "osx": {
+        "command": "cmake --build build"
+      },
+      "windows": {
+        "command": ".\\scripts\\windows_build.ps1"
+      }
     },
     {
       "label": "Run CLI Inspect",
@@ -35,7 +51,7 @@
         "command": "./build/gim_studio sample/demo.gim"
       },
       "windows": {
-        "command": ".\\build\\gim_studio.exe sample\\demo.gim"
+        "command": ".\\scripts\\run_studio.ps1 -ModelPath sample\\demo.gim"
       },
       "problemMatcher": []
     }
