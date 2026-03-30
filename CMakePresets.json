@@ -1,0 +1,41 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 23,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-vs2022-x64",
+      "displayName": "Windows VS2022 x64",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "17",
+        "GIM_ENABLE_STUDIO": "ON"
+      }
+    },
+    {
+      "name": "windows-vs2022-x64-no-studio",
+      "displayName": "Windows VS2022 x64 (No Studio)",
+      "inherits": "windows-vs2022-x64",
+      "cacheVariables": {
+        "GIM_ENABLE_STUDIO": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-release",
+      "configurePreset": "windows-vs2022-x64",
+      "configuration": "Release"
+    },
+    {
+      "name": "build-release-no-studio",
+      "configurePreset": "windows-vs2022-x64-no-studio",
+      "configuration": "Release"
+    }
+  ]
+}

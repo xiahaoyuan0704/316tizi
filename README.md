@@ -96,6 +96,28 @@ Windows + MinGW 示例：
 .\build\gim_studio.exe sample\demo.gim
 ```
 
+## 在 Visual Studio 2022 里“打开不了文件夹”怎么办
+
+你这个问题通常不是项目坏了，而是 VS 没用对入口。这个仓库是 **CMake 项目**，不是 `.sln` 现成工程。
+
+请按这个顺序：
+
+1. 打开 VS2022 -> `File` -> `Open` -> `Folder...`
+2. 选择仓库根目录（包含 `CMakeLists.txt` 的目录）
+3. 等右下角 `CMake` 配置完成
+4. 在 `CMake Targets View` 里选择并启动 `gim_toolkit` 或 `gim_studio`
+
+如果还看不到项目：
+
+- 确认安装了 VS2022 的 **Desktop development with C++** 和 **CMake tools for Windows**；
+- 确认你打开的是仓库根目录（`CMakeLists.txt` 在第一层）；
+- 删除旧缓存后重试：关闭 VS，删除 `build/`，再重新 `Open Folder`。
+
+本仓库已提供 `CMakePresets.json`，在 VS2022 里可直接选择：
+
+- `windows-vs2022-x64`
+- `windows-vs2022-x64-no-studio`
+
 
 ## VSCode / PowerShell 常见报错排查
 
