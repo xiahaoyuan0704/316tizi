@@ -1,0 +1,73 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Configure (with Studio)",
+      "type": "shell",
+      "linux": {
+        "command": "cmake -S . -B build"
+      },
+      "osx": {
+        "command": "cmake -S . -B build"
+      },
+      "windows": {
+        "command": ".\\scripts\\windows_build.ps1"
+      }
+    },
+    {
+      "label": "Configure (Windows VS2022 direct)",
+      "type": "shell",
+      "windows": {
+        "command": "cmake -S . -B build -G \"Visual Studio 17 2022\" -A x64"
+      }
+    },
+    {
+      "label": "Build",
+      "type": "shell",
+      "linux": {
+        "command": "cmake --build build"
+      },
+      "osx": {
+        "command": "cmake --build build"
+      },
+      "windows": {
+        "command": ".\\scripts\\windows_build.ps1"
+      }
+    },
+    {
+      "label": "Build (Windows Release direct)",
+      "type": "shell",
+      "windows": {
+        "command": "cmake --build build --config Release"
+      }
+    },
+    {
+      "label": "Run CLI Inspect",
+      "type": "shell",
+      "linux": {
+        "command": "./build/gim_toolkit inspect sample/demo.gim"
+      },
+      "osx": {
+        "command": "./build/gim_toolkit inspect sample/demo.gim"
+      },
+      "windows": {
+        "command": ".\\build\\gim_toolkit.exe inspect sample\\demo.gim"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Studio",
+      "type": "shell",
+      "linux": {
+        "command": "./build/gim_studio sample/demo.gim"
+      },
+      "osx": {
+        "command": "./build/gim_studio sample/demo.gim"
+      },
+      "windows": {
+        "command": ".\\scripts\\run_studio.ps1 -ModelPath sample\\demo.gim"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

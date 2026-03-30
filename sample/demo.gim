@@ -1,0 +1,9 @@
+GIMv1
+name=DemoModel
+attr:author:string:alice
+attr:revision:int:2
+attr:scale:float:1.2
+v -1 -1 0
+v 1 -1 0
+v 0 1 0
+f 0 1 2
