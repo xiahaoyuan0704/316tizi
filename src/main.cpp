@@ -26,7 +26,7 @@ struct AppState {
     gim::Parser parser;
     gim::GimAttributes model;
     std::wstring currentFile;
-    std::wstring message = L"File -> Open 打开 GIM(Grid Information Model) JSON。滚轮缩放，按住鼠标中键平移，左键选中单元格。";
+    std::wstring message = L"Use File -> Open to load a GIM JSON. Wheel: zoom, middle-drag: pan, left-click: select cell.";
     bool loaded = false;
 
     Viewport view;
@@ -59,12 +59,12 @@ COLORREF colorFromCategory(const std::string& category) {
 
 std::wstring modelSummary(const AppState& s) {
     std::wstringstream ss;
-    ss << L"文件: " << s.currentFile << L"\n";
-    ss << L"格式: " << toWide(s.model.format) << L"  版本: " << toWide(s.model.version) << L"\n";
-    ss << L"项目: " << toWide(s.model.projectName) << L"  作者: " << toWide(s.model.author) << L"\n";
-    ss << L"网格: " << s.model.grid.rows << L" x " << s.model.grid.cols << L"  Cell(mm): " << s.model.grid.cellSizeMm << L"\n";
-    ss << L"原点: (" << s.model.grid.originX << L", " << s.model.grid.originY << L")  旋转: " << s.model.grid.rotationDeg << L" deg\n";
-    ss << L"楼层数: " << s.model.levels.size() << L"  单元格数: " << s.model.cells.size() << L"  当前楼层: " << toWide(s.currentLevel);
+    ss << L"File: " << s.currentFile << L"\n";
+    ss << L"Format: " << toWide(s.model.format) << L"  Version: " << toWide(s.model.version) << L"\n";
+    ss << L"Project: " << toWide(s.model.projectName) << L"  Author: " << toWide(s.model.author) << L"\n";
+    ss << L"Grid: " << s.model.grid.rows << L" x " << s.model.grid.cols << L"  Cell(mm): " << s.model.grid.cellSizeMm << L"\n";
+    ss << L"Origin: (" << s.model.grid.originX << L", " << s.model.grid.originY << L")  Rotation: " << s.model.grid.rotationDeg << L" deg\n";
+    ss << L"Levels: " << s.model.levels.size() << L"  Cells: " << s.model.cells.size() << L"  Current level: " << toWide(s.currentLevel);
     return ss.str();
 }
 
@@ -96,7 +96,7 @@ void drawPropertiesPanel(HDC hdc, const RECT& panel, const AppState& state) {
 
     RECT inner{panel.left + 10, panel.top + 10, panel.right - 10, panel.bottom - 10};
     std::wstringstream ss;
-    ss << L"属性面板\n\n";
+    ss << L"Properties\n\n";
 
     if (state.selectedCell) {
         const auto& c = *state.selectedCell;
@@ -105,10 +105,10 @@ void drawPropertiesPanel(HDC hdc, const RECT& panel, const AppState& state) {
         ss << L"Category: " << toWide(c.category) << L"\n";
         ss << L"Usage: " << toWide(c.usage) << L"\n";
         ss << L"Elevation(mm): " << c.elevationMm << L"\n\n";
-        ss << L"自定义属性:\n" << propertiesToText(c.properties);
+        ss << L"Custom properties:\n" << propertiesToText(c.properties);
     } else {
-        ss << L"未选中单元格。\n\n";
-        ss << L"模型属性:\n" << propertiesToText(state.model.properties);
+        ss << L"No cell selected.\n\n";
+        ss << L"Model properties:\n" << propertiesToText(state.model.properties);
     }
 
     drawText(hdc, inner, ss.str());
@@ -245,7 +245,7 @@ void openFile(HWND hwnd, AppState& state) {
     auto model = state.parser.load(filePath, error);
     if (!model) {
         state.loaded = false;
-        state.message = L"解析失败: " + toWide(error);
+        state.message = L"Parse failed: " + toWide(error);
         state.selectedCell.reset();
         InvalidateRect(hwnd, nullptr, TRUE);
         return;
@@ -393,7 +393,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     wc.lpszClassName = kWindowClass;
 
     if (!RegisterClassExW(&wc)) {
-        MessageBoxW(nullptr, L"窗口类注册失败。", L"Error", MB_ICONERROR);
+        MessageBoxW(nullptr, L"Failed to register window class.", L"Error", MB_ICONERROR);
         return 1;
     }
 
@@ -402,7 +402,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         CW_USEDEFAULT, CW_USEDEFAULT, 1400, 900, nullptr, createMenuBar(), hInstance, &state);
 
     if (!hwnd) {
-        MessageBoxW(nullptr, L"窗口创建失败。", L"Error", MB_ICONERROR);
+        MessageBoxW(nullptr, L"Failed to create window.", L"Error", MB_ICONERROR);
         return 1;
     }
 

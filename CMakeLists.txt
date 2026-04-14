@@ -12,5 +12,5 @@ add_executable(GimViewer
 
 target_compile_definitions(GimViewer PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 if (MSVC)
-    target_compile_options(GimViewer PRIVATE /W4 /permissive-)
+    target_compile_options(GimViewer PRIVATE /W4 /permissive- /utf-8)
 endif()

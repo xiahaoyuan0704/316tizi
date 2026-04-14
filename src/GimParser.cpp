@@ -33,7 +33,7 @@ public:
         }
         skipWs();
         if (pos_ != src_.size()) {
-            error = "JSON 尾部存在多余字符。";
+            error = "Trailing characters after JSON root.";
             return std::nullopt;
         }
         return root;
@@ -43,7 +43,7 @@ private:
     std::optional<JsonValue> parseValue(std::string& error) {
         skipWs();
         if (pos_ >= src_.size()) {
-            error = "JSON 提前结束。";
+            error = "Unexpected end of JSON.";
             return std::nullopt;
         }
 
@@ -81,7 +81,7 @@ private:
             return JsonValue{nullptr};
         }
 
-        error = "无法识别的 JSON 值。";
+        error = "Unrecognized JSON value.";
         return std::nullopt;
     }
 
@@ -100,7 +100,7 @@ private:
             }
             skipWs();
             if (!consume(':')) {
-                error = "对象键后缺少 ':'。";
+                error = "Missing ':' after object key.";
                 return std::nullopt;
             }
             auto value = parseValue(error);
@@ -114,13 +114,13 @@ private:
                 return JsonValue{obj};
             }
             if (!consume(',')) {
-                error = "对象字段分隔符错误。";
+                error = "Invalid object field delimiter.";
                 return std::nullopt;
             }
             skipWs();
         }
 
-        error = "对象未正确结束。";
+        error = "Object not terminated correctly.";
         return std::nullopt;
     }
 
@@ -144,19 +144,19 @@ private:
                 return JsonValue{arr};
             }
             if (!consume(',')) {
-                error = "数组元素分隔符错误。";
+                error = "Invalid array delimiter.";
                 return std::nullopt;
             }
             skipWs();
         }
 
-        error = "数组未正确结束。";
+        error = "Array not terminated correctly.";
         return std::nullopt;
     }
 
     std::optional<std::string> parseString(std::string& error) {
         if (!consume('"')) {
-            error = "字符串必须以双引号开始。";
+            error = "String must start with a double quote.";
             return std::nullopt;
         }
 
@@ -168,7 +168,7 @@ private:
             }
             if (c == '\\') {
                 if (pos_ >= src_.size()) {
-                    error = "转义字符不完整。";
+                    error = "Incomplete escape sequence.";
                     return std::nullopt;
                 }
                 const char e = src_[pos_++];
@@ -182,7 +182,7 @@ private:
                 case 'r': out.push_back('\r'); break;
                 case 't': out.push_back('\t'); break;
                 default:
-                    error = "暂不支持该转义字符。";
+                    error = "Unsupported escape character.";
                     return std::nullopt;
                 }
             } else {
@@ -190,7 +190,7 @@ private:
             }
         }
 
-        error = "字符串未正确结束。";
+        error = "String not terminated correctly.";
         return std::nullopt;
     }
 
@@ -221,7 +221,7 @@ private:
         try {
             return std::stod(src_.substr(start, pos_ - start));
         } catch (...) {
-            error = "数字解析失败。";
+            error = "Failed to parse number.";
             return std::nullopt;
         }
     }
@@ -345,7 +345,7 @@ void readProperties(const JsonObject& obj, const std::string& key, Properties& p
 std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath, std::string& error) {
     std::ifstream input(filePath, std::ios::binary);
     if (!input) {
-        error = "无法打开 GIM 文件。";
+        error = "Cannot open GIM file.";
         return std::nullopt;
     }
 
@@ -360,7 +360,7 @@ std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath,
 
     const JsonObject* root = asObject(*rootValue);
     if (!root) {
-        error = "根节点必须是 JSON 对象。";
+        error = "Root node must be a JSON object.";
         return std::nullopt;
     }
 
@@ -373,23 +373,23 @@ std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath,
     readProperties(*root, "properties", out.properties);
 
     if (out.format != "GIM-GridInformationModel") {
-        error = "format 必须是 GIM-GridInformationModel。";
+        error = "format must be GIM-GridInformationModel.";
         return std::nullopt;
     }
 
     const JsonValue* gridVal = find(*root, "grid");
     const JsonObject* gridObj = gridVal ? asObject(*gridVal) : nullptr;
     if (!gridObj) {
-        error = "缺少 grid 对象。";
+        error = "Missing grid object.";
         return std::nullopt;
     }
 
     if (!readUInt(*gridObj, "rows", out.grid.rows) || !readUInt(*gridObj, "cols", out.grid.cols)) {
-        error = "grid.rows 和 grid.cols 必须为非负整数。";
+        error = "grid.rows and grid.cols must be non-negative integers.";
         return std::nullopt;
     }
     if (!readNumber(*gridObj, "cellSizeMm", out.grid.cellSizeMm)) {
-        error = "grid.cellSizeMm 必须为数字。";
+        error = "grid.cellSizeMm must be numeric.";
         return std::nullopt;
     }
     readNumber(*gridObj, "originX", out.grid.originX);
@@ -414,7 +414,7 @@ std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath,
     const JsonValue* cellsVal = find(*root, "cells");
     const JsonArray* cells = cellsVal ? asArray(*cellsVal) : nullptr;
     if (!cells) {
-        error = "缺少 cells 数组。";
+        error = "Missing cells array.";
         return std::nullopt;
     }
 
