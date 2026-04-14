@@ -436,6 +436,7 @@ std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath,
         readString(*cObj, "category", cell.category);
         readString(*cObj, "usage", cell.usage);
         readNumber(*cObj, "elevationMm", cell.elevationMm);
+        readNumber(*cObj, "heightMm", cell.heightMm);
         readProperties(*cObj, "properties", cell.properties);
 
         out.cells.push_back(std::move(cell));

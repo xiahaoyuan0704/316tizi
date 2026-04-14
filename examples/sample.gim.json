@@ -22,15 +22,15 @@
     { "name": "L2", "elevationMm": 4200 }
   ],
   "cells": [
-    { "row": 1, "col": 1, "level": "L1", "category": "Core", "usage": "Shaft", "elevationMm": 0,
+    { "row": 1, "col": 1, "level": "L1", "category": "Core", "usage": "Shaft", "elevationMm": 0, "heightMm": 3500,
       "properties": { "code": "C-01", "status": "new" } },
-    { "row": 1, "col": 2, "level": "L1", "category": "Wall", "usage": "Partition", "elevationMm": 0,
+    { "row": 1, "col": 2, "level": "L1", "category": "Wall", "usage": "Partition", "elevationMm": 0, "heightMm": 3500,
       "properties": { "fireRating": "2h", "material": "AAC" } },
-    { "row": 2, "col": 3, "level": "L1", "category": "Door", "usage": "Entry", "elevationMm": 0,
+    { "row": 2, "col": 3, "level": "L1", "category": "Door", "usage": "Entry", "elevationMm": 0, "heightMm": 3500,
       "properties": { "width": "1200" } },
-    { "row": 3, "col": 5, "level": "L2", "category": "Column", "usage": "Structure", "elevationMm": 4200,
+    { "row": 3, "col": 5, "level": "L2", "category": "Column", "usage": "Structure", "elevationMm": 4200, "heightMm": 3800,
       "properties": { "section": "600x600" } },
-    { "row": 4, "col": 8, "level": "B1", "category": "MEP", "usage": "Pipe", "elevationMm": -4200,
+    { "row": 4, "col": 8, "level": "B1", "category": "MEP", "usage": "Pipe", "elevationMm": -4200, "heightMm": 3000,
       "properties": { "system": "HVAC" } }
   ]
 }

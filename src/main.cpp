@@ -5,10 +5,12 @@
 #include <commdlg.h>
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -20,13 +22,15 @@ struct Viewport {
     double zoom = 1.0;
     double offsetX = 0.0;
     double offsetY = 0.0;
+    double yaw = 45.0;
+    double pitch = 28.0;
 };
 
 struct AppState {
     gim::Parser parser;
     gim::GimAttributes model;
     std::wstring currentFile;
-    std::wstring message = L"Use File -> Open to load a GIM JSON. Wheel: zoom, middle-drag: pan, left-click: select cell.";
+    std::wstring message = L"Open a GIM JSON. Wheel: zoom, middle drag: pan, left click: select, A/D rotate, W/S pitch.";
     bool loaded = false;
 
     Viewport view;
@@ -35,6 +39,17 @@ struct AppState {
 
     std::optional<gim::Cell> selectedCell;
     std::string currentLevel = "ALL";
+};
+
+struct Vec3 {
+    double x = 0;
+    double y = 0;
+    double z = 0;
+};
+
+struct Vec2 {
+    int x = 0;
+    int y = 0;
 };
 
 std::wstring toWide(const std::string& s) {
@@ -57,14 +72,19 @@ COLORREF colorFromCategory(const std::string& category) {
     return it == lut.end() ? RGB(160, 200, 160) : it->second;
 }
 
+COLORREF shade(COLORREF c, double factor) {
+    auto ch = [factor](int v) { return std::clamp(static_cast<int>(v * factor), 0, 255); };
+    return RGB(ch(GetRValue(c)), ch(GetGValue(c)), ch(GetBValue(c)));
+}
+
 std::wstring modelSummary(const AppState& s) {
     std::wstringstream ss;
     ss << L"File: " << s.currentFile << L"\n";
     ss << L"Format: " << toWide(s.model.format) << L"  Version: " << toWide(s.model.version) << L"\n";
     ss << L"Project: " << toWide(s.model.projectName) << L"  Author: " << toWide(s.model.author) << L"\n";
     ss << L"Grid: " << s.model.grid.rows << L" x " << s.model.grid.cols << L"  Cell(mm): " << s.model.grid.cellSizeMm << L"\n";
-    ss << L"Origin: (" << s.model.grid.originX << L", " << s.model.grid.originY << L")  Rotation: " << s.model.grid.rotationDeg << L" deg\n";
-    ss << L"Levels: " << s.model.levels.size() << L"  Cells: " << s.model.cells.size() << L"  Current level: " << toWide(s.currentLevel);
+    ss << L"Levels: " << s.model.levels.size() << L"  Cells: " << s.model.cells.size() << L"  Current level: " << toWide(s.currentLevel) << L"\n";
+    ss << L"3D View - Yaw: " << s.view.yaw << L" Pitch: " << s.view.pitch << L" Zoom: " << s.view.zoom;
     return ss.str();
 }
 
@@ -81,11 +101,11 @@ void drawText(HDC hdc, const RECT& rect, const std::wstring& text) {
 }
 
 RECT renderRect(const RECT& client) {
-    return RECT{16, 190, client.right - 300, client.bottom - 16};
+    return RECT{16, 200, client.right - 300, client.bottom - 16};
 }
 
 RECT panelRect(const RECT& client) {
-    return RECT{client.right - 280, 190, client.right - 16, client.bottom - 16};
+    return RECT{client.right - 280, 200, client.right - 16, client.bottom - 16};
 }
 
 void drawPropertiesPanel(HDC hdc, const RECT& panel, const AppState& state) {
@@ -104,7 +124,8 @@ void drawPropertiesPanel(HDC hdc, const RECT& panel, const AppState& state) {
         ss << L"Level: " << toWide(c.level.empty() ? "N/A" : c.level) << L"\n";
         ss << L"Category: " << toWide(c.category) << L"\n";
         ss << L"Usage: " << toWide(c.usage) << L"\n";
-        ss << L"Elevation(mm): " << c.elevationMm << L"\n\n";
+        ss << L"Elevation(mm): " << c.elevationMm << L"\n";
+        ss << L"Height(mm): " << c.heightMm << L"\n\n";
         ss << L"Custom properties:\n" << propertiesToText(c.properties);
     } else {
         ss << L"No cell selected.\n\n";
@@ -114,70 +135,109 @@ void drawPropertiesPanel(HDC hdc, const RECT& panel, const AppState& state) {
     drawText(hdc, inner, ss.str());
 }
 
-void drawGrid(HDC hdc, const RECT& area, const AppState& state) {
-    if (!state.loaded || state.model.grid.rows == 0 || state.model.grid.cols == 0) {
-        return;
+Vec2 project(const Vec3& p, const RECT& area, const Viewport& v, double scale) {
+    const double yaw = v.yaw * 3.1415926535 / 180.0;
+    const double pitch = v.pitch * 3.1415926535 / 180.0;
+
+    const double cy = std::cos(yaw);
+    const double sy = std::sin(yaw);
+    const double cp = std::cos(pitch);
+    const double sp = std::sin(pitch);
+
+    const double rx = p.x * cy - p.y * sy;
+    const double ry = p.x * sy + p.y * cy;
+    const double rz = p.z;
+
+    const double ry2 = ry * cp - rz * sp;
+
+    Vec2 out;
+    out.x = static_cast<int>((area.left + area.right) * 0.5 + v.offsetX + rx * scale * v.zoom);
+    out.y = static_cast<int>((area.top + area.bottom) * 0.5 + v.offsetY - ry2 * scale * v.zoom);
+    return out;
+}
+
+void fillQuad(HDC hdc, const Vec2& a, const Vec2& b, const Vec2& c, const Vec2& d, COLORREF color) {
+    POINT pts[4]{{a.x, a.y}, {b.x, b.y}, {c.x, c.y}, {d.x, d.y}};
+    HBRUSH brush = CreateSolidBrush(color);
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, brush));
+    HPEN pen = CreatePen(PS_SOLID, 1, RGB(30, 30, 30));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
+    Polygon(hdc, pts, 4);
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(brush);
+    DeleteObject(pen);
+}
+
+void drawCell3D(HDC hdc, const RECT& area, const AppState& state, const gim::Cell& cell) {
+    const double cellSize = state.model.grid.cellSizeMm;
+    const double gridW = state.model.grid.cols * cellSize;
+    const double gridH = state.model.grid.rows * cellSize;
+
+    const double x0 = cell.col * cellSize - gridW / 2.0;
+    const double y0 = cell.row * cellSize - gridH / 2.0;
+    const double x1 = x0 + cellSize;
+    const double y1 = y0 + cellSize;
+    const double z0 = cell.elevationMm;
+    const double z1 = z0 + cell.heightMm;
+
+    constexpr double kScale = 0.05;
+
+    Vec2 p000 = project({x0, y0, z0}, area, state.view, kScale);
+    Vec2 p100 = project({x1, y0, z0}, area, state.view, kScale);
+    Vec2 p110 = project({x1, y1, z0}, area, state.view, kScale);
+    Vec2 p010 = project({x0, y1, z0}, area, state.view, kScale);
+
+    Vec2 p001 = project({x0, y0, z1}, area, state.view, kScale);
+    Vec2 p101 = project({x1, y0, z1}, area, state.view, kScale);
+    Vec2 p111 = project({x1, y1, z1}, area, state.view, kScale);
+    Vec2 p011 = project({x0, y1, z1}, area, state.view, kScale);
+
+    COLORREF base = colorFromCategory(cell.category);
+    fillQuad(hdc, p001, p101, p111, p011, shade(base, 1.15)); // top
+    fillQuad(hdc, p000, p100, p101, p001, shade(base, 0.95)); // side 1
+    fillQuad(hdc, p100, p110, p111, p101, shade(base, 0.75)); // side 2
+
+    if (state.selectedCell && state.selectedCell->row == cell.row && state.selectedCell->col == cell.col && state.selectedCell->level == cell.level) {
+        HPEN pen = CreatePen(PS_SOLID, 2, RGB(255, 40, 40));
+        HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
+        MoveToEx(hdc, p001.x, p001.y, nullptr); LineTo(hdc, p101.x, p101.y); LineTo(hdc, p111.x, p111.y); LineTo(hdc, p011.x, p011.y); LineTo(hdc, p001.x, p001.y);
+        SelectObject(hdc, oldPen);
+        DeleteObject(pen);
     }
 
-    HBRUSH bg = CreateSolidBrush(RGB(245, 246, 248));
+    // subtle ground grid for context
+    HPEN gpen = CreatePen(PS_SOLID, 1, RGB(220, 220, 220));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, gpen));
+    MoveToEx(hdc, p000.x, p000.y, nullptr); LineTo(hdc, p100.x, p100.y); LineTo(hdc, p110.x, p110.y); LineTo(hdc, p010.x, p010.y); LineTo(hdc, p000.x, p000.y);
+    SelectObject(hdc, oldPen);
+    DeleteObject(gpen);
+}
+
+void drawScene3D(HDC hdc, const RECT& area, const AppState& state) {
+    HBRUSH bg = CreateSolidBrush(RGB(242, 244, 248));
     FillRect(hdc, &area, bg);
     DeleteObject(bg);
     Rectangle(hdc, area.left, area.top, area.right, area.bottom);
 
-    const double baseW = static_cast<double>(area.right - area.left) / state.model.grid.cols;
-    const double baseH = static_cast<double>(area.bottom - area.top) / state.model.grid.rows;
-    const double cellW = baseW * state.view.zoom;
-    const double cellH = baseH * state.view.zoom;
-
-    HPEN linePen = CreatePen(PS_SOLID, 1, RGB(200, 200, 200));
-    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, linePen));
-
-    for (std::uint32_t r = 0; r < state.model.grid.rows; ++r) {
-        for (std::uint32_t c = 0; c < state.model.grid.cols; ++c) {
-            const int x0 = static_cast<int>(area.left + state.view.offsetX + c * cellW);
-            const int y0 = static_cast<int>(area.top + state.view.offsetY + r * cellH);
-            const int x1 = static_cast<int>(area.left + state.view.offsetX + (c + 1) * cellW);
-            const int y1 = static_cast<int>(area.top + state.view.offsetY + (r + 1) * cellH);
-            if (x1 < area.left || y1 < area.top || x0 > area.right || y0 > area.bottom) {
-                continue;
-            }
-            Rectangle(hdc, x0, y0, x1, y1);
-        }
+    if (!state.loaded || state.model.grid.rows == 0 || state.model.grid.cols == 0) {
+        return;
     }
 
-    SelectObject(hdc, oldPen);
-    DeleteObject(linePen);
-
-    for (const auto& cell : state.model.cells) {
-        if (state.currentLevel != "ALL" && !cell.level.empty() && cell.level != state.currentLevel) {
+    std::vector<const gim::Cell*> visible;
+    for (const auto& c : state.model.cells) {
+        if (state.currentLevel != "ALL" && !c.level.empty() && c.level != state.currentLevel) {
             continue;
         }
-        const int x0 = static_cast<int>(area.left + state.view.offsetX + cell.col * cellW);
-        const int y0 = static_cast<int>(area.top + state.view.offsetY + cell.row * cellH);
-        const int x1 = static_cast<int>(area.left + state.view.offsetX + (cell.col + 1) * cellW);
-        const int y1 = static_cast<int>(area.top + state.view.offsetY + (cell.row + 1) * cellH);
-        if (x1 < area.left || y1 < area.top || x0 > area.right || y0 > area.bottom) {
-            continue;
-        }
+        visible.push_back(&c);
+    }
 
-        HBRUSH brush = CreateSolidBrush(colorFromCategory(cell.category));
-        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, brush));
-        Rectangle(hdc, x0, y0, x1, y1);
-        SelectObject(hdc, oldBrush);
-        DeleteObject(brush);
+    std::sort(visible.begin(), visible.end(), [](const gim::Cell* a, const gim::Cell* b) {
+        return (a->row + a->col + a->elevationMm / 1000.0) < (b->row + b->col + b->elevationMm / 1000.0);
+    });
 
-        if (state.selectedCell && state.selectedCell->row == cell.row && state.selectedCell->col == cell.col &&
-            state.selectedCell->level == cell.level) {
-            HPEN high = CreatePen(PS_SOLID, 3, RGB(255, 30, 30));
-            HPEN prev = static_cast<HPEN>(SelectObject(hdc, high));
-            MoveToEx(hdc, x0, y0, nullptr);
-            LineTo(hdc, x1, y0);
-            LineTo(hdc, x1, y1);
-            LineTo(hdc, x0, y1);
-            LineTo(hdc, x0, y0);
-            SelectObject(hdc, prev);
-            DeleteObject(high);
-        }
+    for (const auto* c : visible) {
+        drawCell3D(hdc, area, state, *c);
     }
 }
 
@@ -185,29 +245,29 @@ std::optional<gim::Cell> hitTestCell(const AppState& state, int x, int y, const 
     if (!state.loaded) {
         return std::nullopt;
     }
+    constexpr int radius = 16;
+    double best = 1e18;
+    std::optional<gim::Cell> hit;
 
-    const double baseW = static_cast<double>(area.right - area.left) / state.model.grid.cols;
-    const double baseH = static_cast<double>(area.bottom - area.top) / state.model.grid.rows;
-    const double cellW = baseW * state.view.zoom;
-    const double cellH = baseH * state.view.zoom;
+    for (const auto& c : state.model.cells) {
+        if (state.currentLevel != "ALL" && !c.level.empty() && c.level != state.currentLevel) {
+            continue;
+        }
+        const double cellSize = state.model.grid.cellSizeMm;
+        const double gridW = state.model.grid.cols * cellSize;
+        const double gridH = state.model.grid.rows * cellSize;
+        const double cx = (c.col + 0.5) * cellSize - gridW / 2.0;
+        const double cy = (c.row + 0.5) * cellSize - gridH / 2.0;
+        const double cz = c.elevationMm + c.heightMm;
+        Vec2 p = project({cx, cy, cz}, area, state.view, 0.05);
 
-    const int c = static_cast<int>((x - area.left - state.view.offsetX) / cellW);
-    const int r = static_cast<int>((y - area.top - state.view.offsetY) / cellH);
-
-    if (r < 0 || c < 0 || r >= static_cast<int>(state.model.grid.rows) || c >= static_cast<int>(state.model.grid.cols)) {
-        return std::nullopt;
-    }
-
-    for (const auto& cell : state.model.cells) {
-        if (static_cast<int>(cell.row) == r && static_cast<int>(cell.col) == c) {
-            if (state.currentLevel != "ALL" && !cell.level.empty() && cell.level != state.currentLevel) {
-                continue;
-            }
-            return cell;
+        const double d = std::hypot(static_cast<double>(p.x - x), static_cast<double>(p.y - y));
+        if (d < radius && d < best) {
+            best = d;
+            hit = c;
         }
     }
-
-    return std::nullopt;
+    return hit;
 }
 
 void switchLevel(AppState& state, int direction) {
@@ -295,7 +355,7 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_MOUSEWHEEL:
         if (state && state->loaded) {
             const short delta = GET_WHEEL_DELTA_WPARAM(wParam);
-            state->view.zoom = std::clamp(state->view.zoom + (delta > 0 ? 0.1 : -0.1), 0.3, 4.0);
+            state->view.zoom = std::clamp(state->view.zoom + (delta > 0 ? 0.1 : -0.1), 0.3, 5.0);
             InvalidateRect(hwnd, nullptr, TRUE);
         }
         return 0;
@@ -342,6 +402,14 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 switchLevel(*state, -1);
             } else if (wParam == VK_RIGHT) {
                 switchLevel(*state, 1);
+            } else if (wParam == 'A') {
+                state->view.yaw -= 5.0;
+            } else if (wParam == 'D') {
+                state->view.yaw += 5.0;
+            } else if (wParam == 'W') {
+                state->view.pitch = std::clamp(state->view.pitch + 3.0, 5.0, 80.0);
+            } else if (wParam == 'S') {
+                state->view.pitch = std::clamp(state->view.pitch - 3.0, 5.0, 80.0);
             } else {
                 break;
             }
@@ -358,11 +426,11 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         FillRect(hdc, &client, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
 
         if (state) {
-            RECT summary{16, 16, client.right - 16, 170};
+            RECT summary{16, 16, client.right - 16, 180};
             drawText(hdc, summary, state->loaded ? modelSummary(*state) : state->message);
             const RECT area = renderRect(client);
             const RECT panel = panelRect(client);
-            drawGrid(hdc, area, *state);
+            drawScene3D(hdc, area, *state);
             drawPropertiesPanel(hdc, panel, *state);
         }
 
@@ -398,8 +466,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     }
 
     HWND hwnd = CreateWindowExW(
-        0, kWindowClass, L"BIM GIM Viewer (Grid Information Model)", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 1400, 900, nullptr, createMenuBar(), hInstance, &state);
+        0, kWindowClass, L"BIM GIM Viewer (3D Grid)", WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, 1500, 900, nullptr, createMenuBar(), hInstance, &state);
 
     if (!hwnd) {
         MessageBoxW(nullptr, L"Failed to create window.", L"Error", MB_ICONERROR);

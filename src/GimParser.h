@@ -32,6 +32,7 @@ struct Cell {
     std::string category;
     std::string usage;
     double elevationMm = 0.0;
+    double heightMm = 3000.0;
     Properties properties;
 };
 
