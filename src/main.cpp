@@ -1,7 +1,8 @@
 #include "GimParser.h"
 
-#include <commdlg.h>
 #include <windows.h>
+#include <windowsx.h>
+#include <commdlg.h>
 
 #include <algorithm>
 #include <map>
