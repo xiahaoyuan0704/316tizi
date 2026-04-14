@@ -1,299 +1,385 @@
 #include "GimParser.h"
 
-#include <algorithm>
-#include <array>
-#include <cstring>
+#include <cctype>
 #include <fstream>
-#include <span>
+#include <cstring>
+#include <map>
+#include <sstream>
+#include <variant>
 
 namespace gim {
-
 namespace {
 
-constexpr std::uint32_t kChunkRoot = 0x00000002;
-constexpr std::uint32_t kChunkPicture = 0x00000003;
-constexpr std::uint32_t kChunkImage = 0x00000004;
-constexpr std::uint32_t kChunkPalette = 0x00000005;
+struct JsonValue;
+using JsonObject = std::map<std::string, JsonValue>;
+using JsonArray = std::vector<JsonValue>;
 
-struct ChunkHeader {
-    std::uint32_t type = 0;
-    std::uint32_t size = 0;
-    std::uint32_t next = 0;
-    std::uint32_t child = 0;
+struct JsonValue {
+    using Variant = std::variant<std::nullptr_t, bool, double, std::string, JsonArray, JsonObject>;
+    Variant value;
 };
 
-class Reader {
+class JsonReader {
 public:
-    explicit Reader(std::span<const std::uint8_t> data) : data_(data) {}
+    explicit JsonReader(std::string src) : src_(std::move(src)) {}
 
-    bool seek(std::size_t pos) {
-        if (pos > data_.size()) {
-            return false;
+    std::optional<JsonValue> parse(std::string& error) {
+        skipWs();
+        auto root = parseValue(error);
+        if (!root) {
+            return std::nullopt;
         }
-        pos_ = pos;
-        return true;
-    }
-
-    std::size_t tell() const {
-        return pos_;
-    }
-
-    bool skip(std::size_t bytes) {
-        return seek(pos_ + bytes);
-    }
-
-    bool readU32(std::uint32_t& out) {
-        if (pos_ + 4 > data_.size()) {
-            return false;
+        skipWs();
+        if (pos_ != src_.size()) {
+            error = "JSON 尾部存在多余字符。";
+            return std::nullopt;
         }
-        std::memcpy(&out, data_.data() + pos_, 4);
-        pos_ += 4;
-        return true;
-    }
-
-    bool readBytes(std::vector<std::uint8_t>& out, std::size_t bytes) {
-        if (pos_ + bytes > data_.size()) {
-            return false;
-        }
-        out.assign(data_.begin() + static_cast<std::ptrdiff_t>(pos_), data_.begin() + static_cast<std::ptrdiff_t>(pos_ + bytes));
-        pos_ += bytes;
-        return true;
+        return root;
     }
 
 private:
-    std::span<const std::uint8_t> data_;
+    std::optional<JsonValue> parseValue(std::string& error) {
+        skipWs();
+        if (pos_ >= src_.size()) {
+            error = "JSON 提前结束。";
+            return std::nullopt;
+        }
+        const char c = src_[pos_];
+        if (c == '{') {
+            return parseObject(error);
+        }
+        if (c == '[') {
+            return parseArray(error);
+        }
+        if (c == '"') {
+            auto s = parseString(error);
+            if (!s) {
+                return std::nullopt;
+            }
+            return JsonValue{*s};
+        }
+        if (c == '-' || std::isdigit(static_cast<unsigned char>(c))) {
+            auto n = parseNumber(error);
+            if (!n) {
+                return std::nullopt;
+            }
+            return JsonValue{*n};
+        }
+        if (startsWith("true")) {
+            pos_ += 4;
+            return JsonValue{true};
+        }
+        if (startsWith("false")) {
+            pos_ += 5;
+            return JsonValue{false};
+        }
+        if (startsWith("null")) {
+            pos_ += 4;
+            return JsonValue{nullptr};
+        }
+        error = "无法识别的 JSON 值。";
+        return std::nullopt;
+    }
+
+    std::optional<JsonValue> parseObject(std::string& error) {
+        JsonObject obj;
+        ++pos_; // {
+        skipWs();
+        if (consume('}')) {
+            return JsonValue{obj};
+        }
+
+        while (pos_ < src_.size()) {
+            auto key = parseString(error);
+            if (!key) {
+                return std::nullopt;
+            }
+            skipWs();
+            if (!consume(':')) {
+                error = "对象键后缺少 ':'。";
+                return std::nullopt;
+            }
+            auto val = parseValue(error);
+            if (!val) {
+                return std::nullopt;
+            }
+            obj.emplace(*key, std::move(*val));
+
+            skipWs();
+            if (consume('}')) {
+                return JsonValue{obj};
+            }
+            if (!consume(',')) {
+                error = "对象字段分隔符错误。";
+                return std::nullopt;
+            }
+            skipWs();
+        }
+
+        error = "对象未正确结束。";
+        return std::nullopt;
+    }
+
+    std::optional<JsonValue> parseArray(std::string& error) {
+        JsonArray arr;
+        ++pos_; // [
+        skipWs();
+        if (consume(']')) {
+            return JsonValue{arr};
+        }
+
+        while (pos_ < src_.size()) {
+            auto v = parseValue(error);
+            if (!v) {
+                return std::nullopt;
+            }
+            arr.push_back(std::move(*v));
+            skipWs();
+            if (consume(']')) {
+                return JsonValue{arr};
+            }
+            if (!consume(',')) {
+                error = "数组元素分隔符错误。";
+                return std::nullopt;
+            }
+            skipWs();
+        }
+
+        error = "数组未正确结束。";
+        return std::nullopt;
+    }
+
+    std::optional<std::string> parseString(std::string& error) {
+        if (!consume('"')) {
+            error = "字符串必须以双引号开始。";
+            return std::nullopt;
+        }
+
+        std::string out;
+        while (pos_ < src_.size()) {
+            const char c = src_[pos_++];
+            if (c == '"') {
+                return out;
+            }
+            if (c == '\\') {
+                if (pos_ >= src_.size()) {
+                    error = "转义字符不完整。";
+                    return std::nullopt;
+                }
+                const char e = src_[pos_++];
+                switch (e) {
+                case '"': out.push_back('"'); break;
+                case '\\': out.push_back('\\'); break;
+                case '/': out.push_back('/'); break;
+                case 'b': out.push_back('\b'); break;
+                case 'f': out.push_back('\f'); break;
+                case 'n': out.push_back('\n'); break;
+                case 'r': out.push_back('\r'); break;
+                case 't': out.push_back('\t'); break;
+                default:
+                    error = "暂不支持该转义字符。";
+                    return std::nullopt;
+                }
+            } else {
+                out.push_back(c);
+            }
+        }
+
+        error = "字符串未正确结束。";
+        return std::nullopt;
+    }
+
+    std::optional<double> parseNumber(std::string& error) {
+        const std::size_t start = pos_;
+        if (src_[pos_] == '-') {
+            ++pos_;
+        }
+        while (pos_ < src_.size() && std::isdigit(static_cast<unsigned char>(src_[pos_]))) {
+            ++pos_;
+        }
+        if (pos_ < src_.size() && src_[pos_] == '.') {
+            ++pos_;
+            while (pos_ < src_.size() && std::isdigit(static_cast<unsigned char>(src_[pos_]))) {
+                ++pos_;
+            }
+        }
+        if (pos_ < src_.size() && (src_[pos_] == 'e' || src_[pos_] == 'E')) {
+            ++pos_;
+            if (pos_ < src_.size() && (src_[pos_] == '+' || src_[pos_] == '-')) {
+                ++pos_;
+            }
+            while (pos_ < src_.size() && std::isdigit(static_cast<unsigned char>(src_[pos_]))) {
+                ++pos_;
+            }
+        }
+
+        try {
+            return std::stod(src_.substr(start, pos_ - start));
+        } catch (...) {
+            error = "数字解析失败。";
+            return std::nullopt;
+        }
+    }
+
+    bool startsWith(const char* literal) const {
+        const std::size_t len = std::strlen(literal);
+        if (pos_ + len > src_.size()) {
+            return false;
+        }
+        return src_.compare(pos_, len, literal) == 0;
+    }
+
+    bool consume(char c) {
+        if (pos_ < src_.size() && src_[pos_] == c) {
+            ++pos_;
+            return true;
+        }
+        return false;
+    }
+
+    void skipWs() {
+        while (pos_ < src_.size() && std::isspace(static_cast<unsigned char>(src_[pos_]))) {
+            ++pos_;
+        }
+    }
+
+    std::string src_;
     std::size_t pos_ = 0;
 };
 
-std::optional<ChunkHeader> readChunkHeader(Reader& reader) {
-    ChunkHeader header;
-    if (!reader.readU32(header.type) || !reader.readU32(header.size) || !reader.readU32(header.next) || !reader.readU32(header.child)) {
-        return std::nullopt;
-    }
-    return header;
+const JsonObject* asObject(const JsonValue& value) {
+    return std::get_if<JsonObject>(&value.value);
 }
 
-std::uint32_t readLeU32(const std::vector<std::uint8_t>& data, std::size_t off) {
-    if (off + 4 > data.size()) {
-        return 0;
-    }
-    std::uint32_t value;
-    std::memcpy(&value, data.data() + off, 4);
-    return value;
+const JsonArray* asArray(const JsonValue& value) {
+    return std::get_if<JsonArray>(&value.value);
 }
 
-std::uint32_t rgbaFromBytes(const std::uint8_t* p) {
-    const std::uint8_t r = p[0];
-    const std::uint8_t g = p[1];
-    const std::uint8_t b = p[2];
-    const std::uint8_t a = p[3];
-    return (static_cast<std::uint32_t>(a) << 24) |
-           (static_cast<std::uint32_t>(r) << 16) |
-           (static_cast<std::uint32_t>(g) << 8) |
-           static_cast<std::uint32_t>(b);
+const std::string* asString(const JsonValue& value) {
+    return std::get_if<std::string>(&value.value);
+}
+
+std::optional<double> asNumber(const JsonValue& value) {
+    if (const auto* p = std::get_if<double>(&value.value)) {
+        return *p;
+    }
+    return std::nullopt;
+}
+
+const JsonValue* find(const JsonObject& obj, const std::string& key) {
+    const auto it = obj.find(key);
+    if (it == obj.end()) {
+        return nullptr;
+    }
+    return &it->second;
+}
+
+bool readString(const JsonObject& obj, const std::string& key, std::string& out) {
+    if (const auto* node = find(obj, key)) {
+        if (const auto* p = asString(*node)) {
+            out = *p;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool readNumber(const JsonObject& obj, const std::string& key, double& out) {
+    if (const auto* node = find(obj, key)) {
+        if (auto p = asNumber(*node)) {
+            out = *p;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool readUInt(const JsonObject& obj, const std::string& key, std::uint32_t& out) {
+    double n = 0.0;
+    if (!readNumber(obj, key, n) || n < 0.0) {
+        return false;
+    }
+    out = static_cast<std::uint32_t>(n);
+    return true;
 }
 
 } // namespace
 
-std::optional<GimImage> Parser::load(const std::filesystem::path& filePath, std::string& error, GimAttributes& attributes) {
+std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath, std::string& error) {
     std::ifstream input(filePath, std::ios::binary);
     if (!input) {
-        error = "无法打开文件。";
+        error = "无法打开 GIM 文件。";
         return std::nullopt;
     }
 
-    std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    if (bytes.size() < 16) {
-        error = "文件太小，不是有效的 GIM。";
+    std::stringstream ss;
+    ss << input.rdbuf();
+
+    JsonReader reader(ss.str());
+    auto rootValue = reader.parse(error);
+    if (!rootValue) {
         return std::nullopt;
     }
 
-    auto raw = parseRaw(bytes, error, attributes);
-    if (!raw) {
-        return std::nullopt;
-    }
-    return convert(*raw, error);
-}
-
-std::optional<Parser::RawImage> Parser::parseRaw(const std::vector<std::uint8_t>& bytes, std::string& error, GimAttributes& attributes) {
-    Reader reader(bytes);
-
-    char signature[5]{};
-    std::memcpy(signature, bytes.data(), 4);
-    attributes.signature = std::string(signature, 4);
-    attributes.version = readLeU32(bytes, 4);
-    attributes.fileSize = static_cast<std::uint32_t>(bytes.size());
-
-    if (attributes.signature != "MIG.") {
-        error = "文件头不是 MIG.，当前实现只支持 PSP GIM(MIG.)。";
+    const JsonObject* root = asObject(*rootValue);
+    if (!root) {
+        error = "根节点必须是 JSON 对象。";
         return std::nullopt;
     }
 
-    if (!reader.seek(16)) {
-        error = "读取文件头失败。";
+    GimAttributes out;
+    readString(*root, "format", out.format);
+    readString(*root, "version", out.version);
+    readString(*root, "project", out.projectName);
+    readString(*root, "author", out.author);
+    readString(*root, "unit", out.unit);
+
+    if (out.format != "GIM-GridInformationModel") {
+        error = "format 必须是 GIM-GridInformationModel。";
         return std::nullopt;
     }
 
-    auto rootHeader = readChunkHeader(reader);
-    if (!rootHeader || rootHeader->type != kChunkRoot) {
-        error = "未找到 ROOT 块。";
+    const JsonValue* gridVal = find(*root, "grid");
+    const JsonObject* gridObj = gridVal ? asObject(*gridVal) : nullptr;
+    if (!gridObj) {
+        error = "缺少 grid 对象。";
         return std::nullopt;
     }
 
-    std::size_t cursor = rootHeader->child;
-    RawImage raw;
-    bool imageFound = false;
+    if (!readUInt(*gridObj, "rows", out.grid.rows) || !readUInt(*gridObj, "cols", out.grid.cols)) {
+        error = "grid.rows 和 grid.cols 必须为非负整数。";
+        return std::nullopt;
+    }
 
-    while (cursor != 0 && cursor + sizeof(ChunkHeader) <= bytes.size()) {
-        if (!reader.seek(cursor)) {
-            break;
+    if (!readNumber(*gridObj, "cellSizeMm", out.grid.cellSizeMm)) {
+        error = "grid.cellSizeMm 必须为数字。";
+        return std::nullopt;
+    }
+    readNumber(*gridObj, "originX", out.grid.originX);
+    readNumber(*gridObj, "originY", out.grid.originY);
+    readNumber(*gridObj, "rotationDeg", out.grid.rotationDeg);
+
+    const JsonValue* cellsVal = find(*root, "cells");
+    const JsonArray* cellsArray = cellsVal ? asArray(*cellsVal) : nullptr;
+    if (!cellsArray) {
+        error = "缺少 cells 数组。";
+        return std::nullopt;
+    }
+
+    for (const auto& item : *cellsArray) {
+        const JsonObject* cellObj = asObject(item);
+        if (!cellObj) {
+            continue;
         }
-        auto chunk = readChunkHeader(reader);
-        if (!chunk || chunk->size < sizeof(ChunkHeader)) {
-            break;
+        Cell c;
+        if (!readUInt(*cellObj, "row", c.row) || !readUInt(*cellObj, "col", c.col)) {
+            continue;
         }
-
-        if (chunk->type == kChunkPicture) {
-            std::size_t child = chunk->child;
-            while (child != 0 && child + sizeof(ChunkHeader) <= bytes.size()) {
-                if (!reader.seek(child)) {
-                    break;
-                }
-                auto sub = readChunkHeader(reader);
-                if (!sub || sub->size < sizeof(ChunkHeader)) {
-                    break;
-                }
-
-                attributes.imageBlockCount++;
-
-                const std::size_t bodyStart = child + sizeof(ChunkHeader);
-                const std::size_t bodySize = sub->size - sizeof(ChunkHeader);
-                if (bodyStart + bodySize > bytes.size()) {
-                    error = "块超出文件范围。";
-                    return std::nullopt;
-                }
-
-                if (sub->type == kChunkImage) {
-                    if (bodySize < 32) {
-                        error = "IMAGE 块太小。";
-                        return std::nullopt;
-                    }
-                    raw.info.width = readLeU32(bytes, bodyStart + 0);
-                    raw.info.height = readLeU32(bytes, bodyStart + 4);
-                    raw.info.stride = readLeU32(bytes, bodyStart + 8);
-                    raw.info.format = static_cast<PixelFormat>(readLeU32(bytes, bodyStart + 12));
-                    const auto dataOffset = readLeU32(bytes, bodyStart + 16);
-                    const auto dataSize = readLeU32(bytes, bodyStart + 20);
-
-                    const std::size_t pixelOff = bodyStart + dataOffset;
-                    if (pixelOff + dataSize > bodyStart + bodySize || pixelOff + dataSize > bytes.size()) {
-                        error = "像素数据偏移错误。";
-                        return std::nullopt;
-                    }
-                    raw.pixels.assign(bytes.begin() + static_cast<std::ptrdiff_t>(pixelOff),
-                                      bytes.begin() + static_cast<std::ptrdiff_t>(pixelOff + dataSize));
-
-                    attributes.images.push_back(raw.info);
-                    imageFound = true;
-                } else if (sub->type == kChunkPalette) {
-                    if (bodySize < 24) {
-                        error = "PALETTE 块太小。";
-                        return std::nullopt;
-                    }
-                    raw.paletteFormat = static_cast<PixelFormat>(readLeU32(bytes, bodyStart + 12));
-                    const auto dataOffset = readLeU32(bytes, bodyStart + 16);
-                    const auto dataSize = readLeU32(bytes, bodyStart + 20);
-                    const std::size_t paletteOff = bodyStart + dataOffset;
-                    if (paletteOff + dataSize > bodyStart + bodySize || paletteOff + dataSize > bytes.size()) {
-                        error = "调色板偏移错误。";
-                        return std::nullopt;
-                    }
-                    raw.palette.assign(bytes.begin() + static_cast<std::ptrdiff_t>(paletteOff),
-                                       bytes.begin() + static_cast<std::ptrdiff_t>(paletteOff + dataSize));
-                }
-
-                if (sub->next == 0 || sub->next <= child) {
-                    break;
-                }
-                child = sub->next;
-            }
-        }
-
-        if (chunk->next == 0 || chunk->next <= cursor) {
-            break;
-        }
-        cursor = chunk->next;
-    }
-
-    if (!imageFound) {
-        error = "没有找到可解析的 IMAGE 块。";
-        return std::nullopt;
-    }
-    return raw;
-}
-
-std::optional<GimImage> Parser::convert(const RawImage& raw, std::string& error) {
-    GimImage out;
-    out.info = raw.info;
-
-    if (raw.info.width == 0 || raw.info.height == 0) {
-        error = "无效尺寸。";
-        return std::nullopt;
-    }
-
-    const std::size_t pixelCount = static_cast<std::size_t>(raw.info.width) * raw.info.height;
-    out.rgba.resize(pixelCount);
-
-    if (raw.info.format == PixelFormat::Rgba8888) {
-        if (raw.pixels.size() < pixelCount * 4) {
-            error = "RGBA8888 数据不足。";
-            return std::nullopt;
-        }
-        for (std::size_t i = 0; i < pixelCount; ++i) {
-            out.rgba[i] = rgbaFromBytes(raw.pixels.data() + i * 4);
-        }
-        return out;
-    }
-
-    if (raw.info.format != PixelFormat::Indexed4 && raw.info.format != PixelFormat::Indexed8) {
-        error = "暂不支持该像素格式（仅支持 RGBA8888 / Indexed4 / Indexed8）。";
-        return std::nullopt;
-    }
-
-    if (raw.paletteFormat != PixelFormat::Rgba8888) {
-        error = "当前仅支持 RGBA8888 调色板。";
-        return std::nullopt;
-    }
-
-    const std::size_t colors = raw.palette.size() / 4;
-    if (colors == 0) {
-        error = "缺少调色板数据。";
-        return std::nullopt;
-    }
-
-    std::vector<std::uint32_t> palette(colors);
-    for (std::size_t i = 0; i < colors; ++i) {
-        palette[i] = rgbaFromBytes(raw.palette.data() + i * 4);
-    }
-
-    if (raw.info.format == PixelFormat::Indexed8) {
-        if (raw.pixels.size() < pixelCount) {
-            error = "Indexed8 数据不足。";
-            return std::nullopt;
-        }
-        for (std::size_t i = 0; i < pixelCount; ++i) {
-            const auto index = raw.pixels[i];
-            out.rgba[i] = palette[index % palette.size()];
-        }
-    } else {
-        if (raw.pixels.size() * 2 < pixelCount) {
-            error = "Indexed4 数据不足。";
-            return std::nullopt;
-        }
-        for (std::size_t i = 0; i < pixelCount; ++i) {
-            const std::uint8_t packed = raw.pixels[i / 2];
-            const std::uint8_t index = (i % 2 == 0) ? (packed & 0x0F) : ((packed >> 4) & 0x0F);
-            out.rgba[i] = palette[index % palette.size()];
+        readString(*cellObj, "category", c.category);
+        readString(*cellObj, "usage", c.usage);
+        readNumber(*cellObj, "elevationMm", c.elevationMm);
+        if (c.row < out.grid.rows && c.col < out.grid.cols) {
+            out.cells.push_back(std::move(c));
         }
     }
 

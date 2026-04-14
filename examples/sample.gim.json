@@ -1,0 +1,23 @@
+{
+  "format": "GIM-GridInformationModel",
+  "version": "1.0",
+  "project": "Hospital-A",
+  "author": "Team BIM",
+  "unit": "mm",
+  "grid": {
+    "rows": 12,
+    "cols": 18,
+    "cellSizeMm": 600,
+    "originX": 0,
+    "originY": 0,
+    "rotationDeg": 0
+  },
+  "cells": [
+    { "row": 1, "col": 1, "category": "Core", "usage": "Shaft", "elevationMm": 0 },
+    { "row": 1, "col": 2, "category": "Wall", "usage": "Partition", "elevationMm": 0 },
+    { "row": 1, "col": 3, "category": "Door", "usage": "Entry", "elevationMm": 0 },
+    { "row": 2, "col": 3, "category": "Window", "usage": "Facade", "elevationMm": 0 },
+    { "row": 3, "col": 5, "category": "Column", "usage": "Structure", "elevationMm": 0 },
+    { "row": 4, "col": 8, "category": "MEP", "usage": "Pipe", "elevationMm": 3200 }
+  ]
+}

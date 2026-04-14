@@ -3,23 +3,22 @@
 #include <commdlg.h>
 #include <windows.h>
 
-#include <memory>
+#include <map>
 #include <sstream>
 #include <string>
 
 namespace {
 
-constexpr wchar_t kWindowClass[] = L"GimViewerMainWindow";
+constexpr wchar_t kWindowClass[] = L"GimGridViewerMainWindow";
 constexpr UINT kMenuOpen = 1001;
 constexpr UINT kMenuExit = 1002;
 
 struct AppState {
     gim::Parser parser;
-    gim::GimImage image;
-    gim::GimAttributes attributes;
+    gim::GimAttributes model;
     std::wstring currentFile;
-    std::wstring message = L"请点击 File -> Open 打开 GIM 文件。";
-    bool hasImage = false;
+    std::wstring message = L"请点击 File -> Open 打开 GIM(Grid Information Model) JSON 文件。";
+    bool loaded = false;
 };
 
 std::wstring toWide(const std::string& s) {
@@ -32,71 +31,95 @@ std::wstring toWide(const std::string& s) {
     return out;
 }
 
-void drawTextLine(HDC hdc, int x, int y, const std::wstring& text) {
-    TextOutW(hdc, x, y, text.c_str(), static_cast<int>(text.size()));
+std::wstring buildSummary(const AppState& state) {
+    std::wstringstream ss;
+    ss << L"文件: " << state.currentFile << L"\n";
+    ss << L"格式: " << toWide(state.model.format) << L"\n";
+    ss << L"版本: " << toWide(state.model.version) << L"\n";
+    ss << L"项目: " << toWide(state.model.projectName) << L"\n";
+    ss << L"作者: " << toWide(state.model.author) << L"\n";
+    ss << L"网格: " << state.model.grid.rows << L" x " << state.model.grid.cols
+       << L", Cell(mm): " << state.model.grid.cellSizeMm << L"\n";
+    ss << L"原点(mm): (" << state.model.grid.originX << L", " << state.model.grid.originY
+       << L"), 旋转(deg): " << state.model.grid.rotationDeg << L"\n";
+    ss << L"Cells: " << state.model.cells.size();
+    return ss.str();
 }
 
-void drawImage(HDC hdc, const RECT& client, const AppState& state) {
-    if (!state.hasImage) {
-        drawTextLine(hdc, 16, 16, state.message);
+COLORREF colorFromCategory(const std::string& category) {
+    static const std::map<std::string, COLORREF> lut = {
+        {"Core", RGB(66, 135, 245)},
+        {"Wall", RGB(90, 90, 90)},
+        {"Door", RGB(210, 145, 45)},
+        {"Window", RGB(140, 210, 235)},
+        {"Column", RGB(130, 85, 185)},
+        {"MEP", RGB(220, 75, 130)},
+        {"Empty", RGB(240, 240, 240)},
+    };
+    const auto it = lut.find(category);
+    if (it != lut.end()) {
+        return it->second;
+    }
+    return RGB(160, 200, 160);
+}
+
+void drawTextBlock(HDC hdc, const std::wstring& text) {
+    RECT rc{16, 16, 980, 180};
+    DrawTextW(hdc, text.c_str(), -1, &rc, DT_LEFT | DT_TOP | DT_WORDBREAK);
+}
+
+void drawGrid(HDC hdc, const RECT& client, const AppState& state) {
+    if (!state.loaded || state.model.grid.rows == 0 || state.model.grid.cols == 0) {
         return;
     }
 
-    BITMAPINFO bmi{};
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = static_cast<LONG>(state.image.info.width);
-    bmi.bmiHeader.biHeight = -static_cast<LONG>(state.image.info.height);
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
+    const int panelTop = 170;
+    const int panelMargin = 16;
+    const int panelWidth = (client.right - client.left) - panelMargin * 2;
+    const int panelHeight = (client.bottom - client.top) - panelTop - panelMargin;
 
-    const int maxW = (client.right - client.left) - 32;
-    const int maxH = (client.bottom - client.top) - 120;
-    const double sx = static_cast<double>(maxW) / static_cast<double>(state.image.info.width);
-    const double sy = static_cast<double>(maxH) / static_cast<double>(state.image.info.height);
-    const double scale = maxW > 0 && maxH > 0 ? min(1.0, min(sx, sy)) : 1.0;
-
-    const int drawW = static_cast<int>(state.image.info.width * scale);
-    const int drawH = static_cast<int>(state.image.info.height * scale);
-    const int x = 16;
-    const int y = 100;
-
-    std::vector<std::uint32_t> bgra(state.image.rgba.size());
-    for (std::size_t i = 0; i < state.image.rgba.size(); ++i) {
-        const auto c = state.image.rgba[i];
-        const auto a = (c >> 24) & 0xFF;
-        const auto r = (c >> 16) & 0xFF;
-        const auto g = (c >> 8) & 0xFF;
-        const auto b = c & 0xFF;
-        bgra[i] = (a << 24) | (b << 16) | (g << 8) | r;
+    if (panelWidth <= 0 || panelHeight <= 0) {
+        return;
     }
 
-    StretchDIBits(
-        hdc,
-        x,
-        y,
-        drawW,
-        drawH,
-        0,
-        0,
-        static_cast<int>(state.image.info.width),
-        static_cast<int>(state.image.info.height),
-        bgra.data(),
-        &bmi,
-        DIB_RGB_COLORS,
-        SRCCOPY);
+    const double cellW = static_cast<double>(panelWidth) / state.model.grid.cols;
+    const double cellH = static_cast<double>(panelHeight) / state.model.grid.rows;
 
-    Rectangle(hdc, x - 1, y - 1, x + drawW + 1, y + drawH + 1);
-}
+    HBRUSH emptyBrush = CreateSolidBrush(RGB(245, 245, 245));
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, emptyBrush));
+    HPEN gridPen = CreatePen(PS_SOLID, 1, RGB(180, 180, 180));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, gridPen));
 
-std::wstring formatInfo(const AppState& state) {
-    std::wstringstream ss;
-    ss << L"文件: " << state.currentFile << L"\n";
-    ss << L"签名: " << toWide(state.attributes.signature) << L"  版本: " << state.attributes.version << L"\n";
-    ss << L"尺寸: " << state.image.info.width << L" x " << state.image.info.height << L"\n";
-    ss << L"Stride: " << state.image.info.stride << L"\n";
-    ss << L"图片块数量: " << state.attributes.imageBlockCount;
-    return ss.str();
+    Rectangle(hdc, panelMargin, panelTop, panelMargin + panelWidth, panelTop + panelHeight);
+
+    for (std::uint32_t r = 0; r < state.model.grid.rows; ++r) {
+        for (std::uint32_t c = 0; c < state.model.grid.cols; ++c) {
+            const int x0 = panelMargin + static_cast<int>(c * cellW);
+            const int y0 = panelTop + static_cast<int>(r * cellH);
+            const int x1 = panelMargin + static_cast<int>((c + 1) * cellW);
+            const int y1 = panelTop + static_cast<int>((r + 1) * cellH);
+            Rectangle(hdc, x0, y0, x1, y1);
+        }
+    }
+
+    SelectObject(hdc, oldPen);
+    DeleteObject(gridPen);
+
+    for (const auto& cell : state.model.cells) {
+        const int x0 = panelMargin + static_cast<int>(cell.col * cellW);
+        const int y0 = panelTop + static_cast<int>(cell.row * cellH);
+        const int x1 = panelMargin + static_cast<int>((cell.col + 1) * cellW);
+        const int y1 = panelTop + static_cast<int>((cell.row + 1) * cellH);
+
+        HBRUSH brush = CreateSolidBrush(colorFromCategory(cell.category));
+        HBRUSH prev = static_cast<HBRUSH>(SelectObject(hdc, brush));
+        Rectangle(hdc, x0, y0, x1, y1);
+        SelectObject(hdc, prev);
+        DeleteObject(brush);
+    }
+
+    SelectObject(hdc, oldBrush);
+    DeleteObject(emptyBrush);
 }
 
 void openFile(HWND hwnd, AppState& state) {
@@ -104,7 +127,7 @@ void openFile(HWND hwnd, AppState& state) {
     wchar_t filePath[MAX_PATH] = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = hwnd;
-    ofn.lpstrFilter = L"GIM Files (*.gim)\0*.gim\0All Files\0*.*\0";
+    ofn.lpstrFilter = L"GIM Grid Model (*.gim.json;*.json)\0*.gim.json;*.json\0All Files\0*.*\0";
     ofn.lpstrFile = filePath;
     ofn.nMaxFile = MAX_PATH;
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
@@ -113,23 +136,32 @@ void openFile(HWND hwnd, AppState& state) {
         return;
     }
 
-    std::string err;
-    gim::GimAttributes attrs;
-    auto image = state.parser.load(filePath, err, attrs);
-
-    if (!image) {
-        state.hasImage = false;
-        state.message = L"加载失败: " + toWide(err);
+    std::string error;
+    auto model = state.parser.load(filePath, error);
+    if (!model) {
+        state.loaded = false;
+        state.message = L"解析失败: " + toWide(error);
         InvalidateRect(hwnd, nullptr, TRUE);
         return;
     }
 
-    state.hasImage = true;
+    state.loaded = true;
     state.currentFile = filePath;
-    state.attributes = std::move(attrs);
-    state.image = std::move(*image);
-    state.message = formatInfo(state);
+    state.model = std::move(*model);
+    state.message = buildSummary(state);
     InvalidateRect(hwnd, nullptr, TRUE);
+}
+
+HMENU createMenuBar() {
+    HMENU menubar = CreateMenu();
+    HMENU fileMenu = CreatePopupMenu();
+
+    AppendMenuW(fileMenu, MF_STRING, kMenuOpen, L"Open...");
+    AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(fileMenu, MF_STRING, kMenuExit, L"Exit");
+    AppendMenuW(menubar, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu), L"File");
+
+    return menubar;
 }
 
 LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -154,19 +186,21 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             PostQuitMessage(0);
             return 0;
         default:
-            return DefWindowProcW(hwnd, msg, wParam, lParam);
+            break;
         }
+        break;
 
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
+
         RECT client{};
         GetClientRect(hwnd, &client);
-
         FillRect(hdc, &client, reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1));
+
         if (state) {
-            drawTextLine(hdc, 16, 16, state->message);
-            drawImage(hdc, client, *state);
+            drawTextBlock(hdc, state->message);
+            drawGrid(hdc, client, *state);
         }
 
         EndPaint(hwnd, &ps);
@@ -176,20 +210,10 @@ LRESULT CALLBACK wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         PostQuitMessage(0);
         return 0;
     default:
-        return DefWindowProcW(hwnd, msg, wParam, lParam);
+        break;
     }
-}
 
-HMENU createMenuBar() {
-    HMENU menubar = CreateMenu();
-    HMENU fileMenu = CreatePopupMenu();
-
-    AppendMenuW(fileMenu, MF_STRING, kMenuOpen, L"Open...");
-    AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(fileMenu, MF_STRING, kMenuExit, L"Exit");
-
-    AppendMenuW(menubar, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu), L"File");
-    return menubar;
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 } // namespace
@@ -198,7 +222,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     AppState state;
 
     WNDCLASSEXW wc{};
-    wc.cbSize = sizeof(wc);
+    wc.cbSize = sizeof(WNDCLASSEXW);
     wc.lpfnWndProc = wndProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
@@ -206,26 +230,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     wc.lpszClassName = kWindowClass;
 
     if (!RegisterClassExW(&wc)) {
-        MessageBoxW(nullptr, L"注册窗口类失败。", L"Error", MB_ICONERROR);
+        MessageBoxW(nullptr, L"窗口类注册失败。", L"Error", MB_ICONERROR);
         return 1;
     }
 
     HWND hwnd = CreateWindowExW(
         0,
         kWindowClass,
-        L"GIM Viewer (C++ / Win32)",
+        L"GIM Grid Information Model Viewer",
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        1000,
-        760,
+        1200,
+        850,
         nullptr,
         createMenuBar(),
         hInstance,
         &state);
 
     if (!hwnd) {
-        MessageBoxW(nullptr, L"创建窗口失败。", L"Error", MB_ICONERROR);
+        MessageBoxW(nullptr, L"窗口创建失败。", L"Error", MB_ICONERROR);
         return 1;
     }
 

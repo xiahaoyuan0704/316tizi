@@ -8,47 +8,36 @@
 
 namespace gim {
 
-enum class PixelFormat : std::uint32_t {
-    Unknown = 0,
-    Rgba8888 = 3,
-    Indexed4 = 4,
-    Indexed8 = 5,
+struct GridDefinition {
+    std::uint32_t rows = 0;
+    std::uint32_t cols = 0;
+    double cellSizeMm = 0.0;
+    double originX = 0.0;
+    double originY = 0.0;
+    double rotationDeg = 0.0;
 };
 
-struct ImageInfo {
-    std::uint32_t width = 0;
-    std::uint32_t height = 0;
-    PixelFormat format = PixelFormat::Unknown;
-    std::uint32_t stride = 0;
-};
-
-struct GimImage {
-    ImageInfo info;
-    std::vector<std::uint32_t> rgba; // 0xAARRGGBB
+struct Cell {
+    std::uint32_t row = 0;
+    std::uint32_t col = 0;
+    std::string category;
+    std::string usage;
+    double elevationMm = 0.0;
 };
 
 struct GimAttributes {
-    std::string signature;
-    std::uint32_t version = 0;
-    std::uint32_t fileSize = 0;
-    std::uint32_t imageBlockCount = 0;
-    std::vector<ImageInfo> images;
+    std::string format;
+    std::string version;
+    std::string projectName;
+    std::string author;
+    std::string unit;
+    GridDefinition grid;
+    std::vector<Cell> cells;
 };
 
 class Parser {
 public:
-    std::optional<GimImage> load(const std::filesystem::path& filePath, std::string& error, GimAttributes& attributes);
-
-private:
-    struct RawImage {
-        ImageInfo info;
-        std::vector<std::uint8_t> pixels;
-        std::vector<std::uint8_t> palette;
-        PixelFormat paletteFormat = PixelFormat::Unknown;
-    };
-
-    std::optional<RawImage> parseRaw(const std::vector<std::uint8_t>& bytes, std::string& error, GimAttributes& attributes);
-    std::optional<GimImage> convert(const RawImage& raw, std::string& error);
+    std::optional<GimAttributes> load(const std::filesystem::path& filePath, std::string& error);
 };
 
 } // namespace gim

@@ -1,45 +1,72 @@
-# GIM Viewer（C++ / Visual Studio 2022）
+# GIM Grid Information Model Viewer（C++ / Visual Studio 2022）
 
-这是一个可直接在 **Windows + Visual Studio 2022** 使用的 GIM 示例项目：
+你刚才澄清的 GIM 是 **BIM 领域的 Grid Information Model**，不是 PSP 贴图文件。
+本项目已改成：
 
-- 解析 GIM 文件头与基础属性（签名、版本、尺寸、格式、Stride、块数量）
-- 支持渲染以下图像格式：
-  - RGBA8888
-  - Indexed4（4-bit，需 RGBA8888 调色板）
-  - Indexed8（8-bit，需 RGBA8888 调色板）
+- 解析 GIM(Grid Information Model) 的 JSON 数据
+- 显示项目/网格属性（rows、cols、cellSize、origin、rotation）
+- 把 cells 渲染为 2D 网格视图（按 category 着色）
 
-> 说明：GIM 在不同工具链下存在变体。本项目专注于常见 **PSP MIG.** 风格 GIM。若你的文件来自其他平台/变体，可在 `GimParser.cpp` 里扩展格式表和 chunk 字段。
+## 1. 支持的输入格式（`.gim.json`）
 
-## 在 Visual Studio 2022 运行
+```json
+{
+  "format": "GIM-GridInformationModel",
+  "version": "1.0",
+  "project": "Hospital-A",
+  "author": "Team BIM",
+  "unit": "mm",
+  "grid": {
+    "rows": 20,
+    "cols": 30,
+    "cellSizeMm": 600,
+    "originX": 0,
+    "originY": 0,
+    "rotationDeg": 0
+  },
+  "cells": [
+    { "row": 1, "col": 1, "category": "Core", "usage": "Shaft", "elevationMm": 0 },
+    { "row": 1, "col": 2, "category": "Wall", "usage": "Partition", "elevationMm": 0 },
+    { "row": 2, "col": 5, "category": "Door", "usage": "MainDoor", "elevationMm": 0 }
+  ]
+}
+```
 
-### 方法 1（推荐）：打开 CMake 项目
-1. 启动 Visual Studio 2022。
-2. `File -> Open -> Folder...`，选择本项目根目录。
-3. VS 会自动识别 `CMakeLists.txt` 并配置。
-4. 选择 `GimViewer` 作为启动项，按 `F5` 运行。
+## 2. 在 Visual Studio 2022 运行
 
-### 方法 2：命令行构建
+### 方法 A（推荐）：直接打开文件夹
+1. 打开 Visual Studio 2022
+2. `File -> Open -> Folder...` 选择本项目目录
+3. 等待 CMake 配置完成
+4. 运行 `GimViewer`
+
+### 方法 B：命令行生成 VS 工程
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
-可执行文件在：`build/Release/GimViewer.exe`
 
-## 使用方式
-1. 启动程序。
-2. 菜单栏 `File -> Open...`。
-3. 选择 `.gim` 文件。
-4. 窗口顶部会显示解析后的属性，下面区域显示渲染结果。
+## 3. 使用方式
+1. 启动程序
+2. 菜单栏 `File -> Open...`
+3. 选择 `.gim.json` 文件
+4. 顶部查看属性信息，下面查看网格着色渲染
 
-## 项目结构
+## 4. category 着色规则（可扩展）
 
-- `src/main.cpp`：Win32 UI、文件打开、信息展示与图像绘制
-- `src/GimParser.h`：数据结构与解析器接口
-- `src/GimParser.cpp`：GIM chunk 解析 + 像素解码
+- Core: 蓝色
+- Wall: 深灰
+- Door: 橙色
+- Window: 浅蓝
+- Column: 紫色
+- MEP: 洋红
+- Empty: 浅灰
+- 未知 category: 绿色
 
-## 扩展建议
+## 5. 后续建议
 
-- 增加 swizzle/unswizzle 支持（部分 GIM 数据是 tiled/swizzled）
-- 增加更多像素/调色板格式（例如 5650、5551、4444）
-- 支持导出 PNG（可接入 WIC 或 stb_image_write）
-- 支持一份 GIM 中多图选择预览
+- 增加图例面板（Legend）
+- 支持缩放/平移/框选
+- 支持多楼层（levels）切换
+- 支持导出 SVG / PNG
+- 对接 IFC 或 Revit 导出的网格数据
