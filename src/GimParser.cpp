@@ -1,8 +1,8 @@
 #include "GimParser.h"
 
 #include <cctype>
-#include <fstream>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <sstream>
 #include <variant>
@@ -18,6 +18,8 @@ struct JsonValue {
     using Variant = std::variant<std::nullptr_t, bool, double, std::string, JsonArray, JsonObject>;
     Variant value;
 };
+
+std::string toString(const JsonValue& v);
 
 class JsonReader {
 public:
@@ -44,6 +46,7 @@ private:
             error = "JSON 提前结束。";
             return std::nullopt;
         }
+
         const char c = src_[pos_];
         if (c == '{') {
             return parseObject(error);
@@ -77,13 +80,14 @@ private:
             pos_ += 4;
             return JsonValue{nullptr};
         }
+
         error = "无法识别的 JSON 值。";
         return std::nullopt;
     }
 
     std::optional<JsonValue> parseObject(std::string& error) {
         JsonObject obj;
-        ++pos_; // {
+        ++pos_;
         skipWs();
         if (consume('}')) {
             return JsonValue{obj};
@@ -99,13 +103,13 @@ private:
                 error = "对象键后缺少 ':'。";
                 return std::nullopt;
             }
-            auto val = parseValue(error);
-            if (!val) {
+            auto value = parseValue(error);
+            if (!value) {
                 return std::nullopt;
             }
-            obj.emplace(*key, std::move(*val));
-
+            obj.emplace(*key, std::move(*value));
             skipWs();
+
             if (consume('}')) {
                 return JsonValue{obj};
             }
@@ -122,19 +126,20 @@ private:
 
     std::optional<JsonValue> parseArray(std::string& error) {
         JsonArray arr;
-        ++pos_; // [
+        ++pos_;
         skipWs();
         if (consume(']')) {
             return JsonValue{arr};
         }
 
         while (pos_ < src_.size()) {
-            auto v = parseValue(error);
-            if (!v) {
+            auto value = parseValue(error);
+            if (!value) {
                 return std::nullopt;
             }
-            arr.push_back(std::move(*v));
+            arr.push_back(std::move(*value));
             skipWs();
+
             if (consume(']')) {
                 return JsonValue{arr};
             }
@@ -260,10 +265,31 @@ const std::string* asString(const JsonValue& value) {
 }
 
 std::optional<double> asNumber(const JsonValue& value) {
-    if (const auto* p = std::get_if<double>(&value.value)) {
-        return *p;
+    if (const auto* n = std::get_if<double>(&value.value)) {
+        return *n;
     }
     return std::nullopt;
+}
+
+std::string toString(const JsonValue& v) {
+    if (const auto* s = std::get_if<std::string>(&v.value)) {
+        return *s;
+    }
+    if (const auto* n = std::get_if<double>(&v.value)) {
+        std::ostringstream os;
+        os << *n;
+        return os.str();
+    }
+    if (const auto* b = std::get_if<bool>(&v.value)) {
+        return *b ? "true" : "false";
+    }
+    if (std::holds_alternative<std::nullptr_t>(v.value)) {
+        return "null";
+    }
+    if (std::holds_alternative<JsonArray>(v.value)) {
+        return "[array]";
+    }
+    return "{object}";
 }
 
 const JsonValue* find(const JsonObject& obj, const std::string& key) {
@@ -276,8 +302,8 @@ const JsonValue* find(const JsonObject& obj, const std::string& key) {
 
 bool readString(const JsonObject& obj, const std::string& key, std::string& out) {
     if (const auto* node = find(obj, key)) {
-        if (const auto* p = asString(*node)) {
-            out = *p;
+        if (const auto* text = asString(*node)) {
+            out = *text;
             return true;
         }
     }
@@ -286,8 +312,8 @@ bool readString(const JsonObject& obj, const std::string& key, std::string& out)
 
 bool readNumber(const JsonObject& obj, const std::string& key, double& out) {
     if (const auto* node = find(obj, key)) {
-        if (auto p = asNumber(*node)) {
-            out = *p;
+        if (const auto num = asNumber(*node)) {
+            out = *num;
             return true;
         }
     }
@@ -303,6 +329,17 @@ bool readUInt(const JsonObject& obj, const std::string& key, std::uint32_t& out)
     return true;
 }
 
+void readProperties(const JsonObject& obj, const std::string& key, Properties& props) {
+    const JsonValue* v = find(obj, key);
+    const JsonObject* pObj = v ? asObject(*v) : nullptr;
+    if (!pObj) {
+        return;
+    }
+    for (const auto& [k, vv] : *pObj) {
+        props[k] = toString(vv);
+    }
+}
+
 } // namespace
 
 std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath, std::string& error) {
@@ -312,10 +349,10 @@ std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath,
         return std::nullopt;
     }
 
-    std::stringstream ss;
-    ss << input.rdbuf();
+    std::stringstream buffer;
+    buffer << input.rdbuf();
 
-    JsonReader reader(ss.str());
+    JsonReader reader(buffer.str());
     auto rootValue = reader.parse(error);
     if (!rootValue) {
         return std::nullopt;
@@ -333,6 +370,7 @@ std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath,
     readString(*root, "project", out.projectName);
     readString(*root, "author", out.author);
     readString(*root, "unit", out.unit);
+    readProperties(*root, "properties", out.properties);
 
     if (out.format != "GIM-GridInformationModel") {
         error = "format 必须是 GIM-GridInformationModel。";
@@ -350,7 +388,6 @@ std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath,
         error = "grid.rows 和 grid.cols 必须为非负整数。";
         return std::nullopt;
     }
-
     if (!readNumber(*gridObj, "cellSizeMm", out.grid.cellSizeMm)) {
         error = "grid.cellSizeMm 必须为数字。";
         return std::nullopt;
@@ -359,28 +396,49 @@ std::optional<GimAttributes> Parser::load(const std::filesystem::path& filePath,
     readNumber(*gridObj, "originY", out.grid.originY);
     readNumber(*gridObj, "rotationDeg", out.grid.rotationDeg);
 
+    if (const JsonValue* levelsVal = find(*root, "levels")) {
+        if (const JsonArray* levels = asArray(*levelsVal)) {
+            for (const auto& lv : *levels) {
+                if (const JsonObject* lvObj = asObject(lv)) {
+                    Level level;
+                    readString(*lvObj, "name", level.name);
+                    readNumber(*lvObj, "elevationMm", level.elevationMm);
+                    if (!level.name.empty()) {
+                        out.levels.push_back(std::move(level));
+                    }
+                }
+            }
+        }
+    }
+
     const JsonValue* cellsVal = find(*root, "cells");
-    const JsonArray* cellsArray = cellsVal ? asArray(*cellsVal) : nullptr;
-    if (!cellsArray) {
+    const JsonArray* cells = cellsVal ? asArray(*cellsVal) : nullptr;
+    if (!cells) {
         error = "缺少 cells 数组。";
         return std::nullopt;
     }
 
-    for (const auto& item : *cellsArray) {
-        const JsonObject* cellObj = asObject(item);
-        if (!cellObj) {
+    for (const auto& item : *cells) {
+        const JsonObject* cObj = asObject(item);
+        if (!cObj) {
             continue;
         }
-        Cell c;
-        if (!readUInt(*cellObj, "row", c.row) || !readUInt(*cellObj, "col", c.col)) {
+
+        Cell cell;
+        if (!readUInt(*cObj, "row", cell.row) || !readUInt(*cObj, "col", cell.col)) {
             continue;
         }
-        readString(*cellObj, "category", c.category);
-        readString(*cellObj, "usage", c.usage);
-        readNumber(*cellObj, "elevationMm", c.elevationMm);
-        if (c.row < out.grid.rows && c.col < out.grid.cols) {
-            out.cells.push_back(std::move(c));
+        if (cell.row >= out.grid.rows || cell.col >= out.grid.cols) {
+            continue;
         }
+
+        readString(*cObj, "level", cell.level);
+        readString(*cObj, "category", cell.category);
+        readString(*cObj, "usage", cell.usage);
+        readNumber(*cObj, "elevationMm", cell.elevationMm);
+        readProperties(*cObj, "properties", cell.properties);
+
+        out.cells.push_back(std::move(cell));
     }
 
     return out;

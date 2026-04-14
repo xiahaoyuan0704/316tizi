@@ -1,9 +1,13 @@
 {
   "format": "GIM-GridInformationModel",
-  "version": "1.0",
+  "version": "1.1",
   "project": "Hospital-A",
   "author": "Team BIM",
   "unit": "mm",
+  "properties": {
+    "phase": "DD",
+    "discipline": "Architecture"
+  },
   "grid": {
     "rows": 12,
     "cols": 18,
@@ -12,12 +16,21 @@
     "originY": 0,
     "rotationDeg": 0
   },
+  "levels": [
+    { "name": "B1", "elevationMm": -4200 },
+    { "name": "L1", "elevationMm": 0 },
+    { "name": "L2", "elevationMm": 4200 }
+  ],
   "cells": [
-    { "row": 1, "col": 1, "category": "Core", "usage": "Shaft", "elevationMm": 0 },
-    { "row": 1, "col": 2, "category": "Wall", "usage": "Partition", "elevationMm": 0 },
-    { "row": 1, "col": 3, "category": "Door", "usage": "Entry", "elevationMm": 0 },
-    { "row": 2, "col": 3, "category": "Window", "usage": "Facade", "elevationMm": 0 },
-    { "row": 3, "col": 5, "category": "Column", "usage": "Structure", "elevationMm": 0 },
-    { "row": 4, "col": 8, "category": "MEP", "usage": "Pipe", "elevationMm": 3200 }
+    { "row": 1, "col": 1, "level": "L1", "category": "Core", "usage": "Shaft", "elevationMm": 0,
+      "properties": { "code": "C-01", "status": "new" } },
+    { "row": 1, "col": 2, "level": "L1", "category": "Wall", "usage": "Partition", "elevationMm": 0,
+      "properties": { "fireRating": "2h", "material": "AAC" } },
+    { "row": 2, "col": 3, "level": "L1", "category": "Door", "usage": "Entry", "elevationMm": 0,
+      "properties": { "width": "1200" } },
+    { "row": 3, "col": 5, "level": "L2", "category": "Column", "usage": "Structure", "elevationMm": 4200,
+      "properties": { "section": "600x600" } },
+    { "row": 4, "col": 8, "level": "B1", "category": "MEP", "usage": "Pipe", "elevationMm": -4200,
+      "properties": { "system": "HVAC" } }
   ]
 }
